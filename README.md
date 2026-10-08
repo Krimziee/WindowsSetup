@@ -40,6 +40,7 @@ Choose **Custom install** to pick exactly what runs: everything starts unticked,
 ## Good to know
 
 - **Nothing changes until you press Start setup and confirm.** A short summary of what will run is shown first. A restore point is created before anything changes, and a log is saved to your desktop.
+- While setup runs, **Show details** opens the full log live under the progress list (still there when it finishes). **Copy** copies it, for example to send it to someone.
 - Windows Setup is also a tab in Krimz's Toolkit, which shows the same page.
 - Already-installed apps are updated instead of reinstalled, so it's safe to run again.
 - Windows SmartScreen or antivirus software may warn about scripts downloaded from the internet. The whole tool is plain PowerShell you can read in this repository.

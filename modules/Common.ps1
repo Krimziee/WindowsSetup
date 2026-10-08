@@ -13,6 +13,9 @@ $script:Setup = @{
     # When the window (UI) is used, progress goes into this queue instead of
     # the console; the window reads it a few times per second.
     UiQueue = $null
+    # The window's own log lines (written outside the engine) go here, so the
+    # Details panel shows them too
+    LogQueue = $null
 }
 
 # ------------------------------------------------------------------
@@ -32,7 +35,13 @@ function Initialize-Log {
 function Write-Log {
     param([string]$Message)
     if (-not $script:Setup.LogFile) { return }
-    try { Add-Content -Path $script:Setup.LogFile -Value ("[{0:HH:mm:ss}] {1}" -f (Get-Date), $Message) } catch { }
+    $line = "[{0:HH:mm:ss}] {1}" -f (Get-Date), $Message
+    try { Add-Content -Path $script:Setup.LogFile -Value $line } catch { }
+    # The window shows the same lines live in its Details panel
+    # (plain assignments: an "if" expression would unroll the queue into its items)
+    $queue = $script:Setup.UiQueue
+    if ($null -eq $queue) { $queue = $script:Setup.LogQueue }
+    if ($null -ne $queue) { $queue.Enqueue([pscustomobject]@{ Type = 'Log'; Label = ''; Value = $line; Status = '' }) }
 }
 
 function Write-Section {

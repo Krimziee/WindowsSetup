@@ -2,6 +2,7 @@
     Windows Setup page. Used by the standalone window (MainWindow.xaml) and by
     the Windows Setup tab in Krimz's Toolkit. Three views share the page:
     StartPage (choose a setup), ProgressPage (live progress), FinishPage (summary).
+    DetailsPanel (the full log) can be opened under the progress and finish views.
     Controls with x:Name are found and wired up by modules\Ui.ps1.
     Styles come from Theme.xaml (loaded as the application's resources).
 -->
@@ -13,6 +14,8 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <!-- The Details panel; Ui.ps1 makes this row share the space when it's open -->
+            <RowDefinition x:Name="DetailsRow" Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
@@ -54,10 +57,19 @@
                         </StackPanel>
                     </RadioButton>
                     <RadioButton x:Name="CustomRadio" Style="{StaticResource CardRadio}" GroupName="Mode">
-                        <StackPanel>
-                            <TextBlock Text="Custom install" FontWeight="SemiBold"/>
-                            <TextBlock Text="Pick what runs" Foreground="{StaticResource Muted}" FontSize="12"/>
-                        </StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Custom install" FontWeight="SemiBold"/>
+                                <TextBlock Text="Pick what runs" Foreground="{StaticResource Muted}" FontSize="12"/>
+                            </StackPanel>
+                            <!-- ui\images\Custom.png, loaded by Ui.ps1 -->
+                            <Image x:Name="CustomImage" Grid.Column="1" Height="36" Margin="12,0,0,0"
+                                   RenderOptions.BitmapScalingMode="HighQuality" Visibility="Collapsed"/>
+                        </Grid>
                     </RadioButton>
                 </StackPanel>
             </ScrollViewer>
@@ -172,8 +184,45 @@
             </Border>
         </Grid>
 
+        <!-- ============================ Details panel ============================ -->
+        <!-- The full log, live (the same lines as the log file). Below the progress or finish page, closed by default. -->
+        <Border x:Name="DetailsPanel" Grid.Row="2" Style="{StaticResource Card}" Padding="6,8" Margin="0,12,0,0" Visibility="Collapsed">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Grid Margin="8,0,8,6">
+                    <TextBlock Text="FULL LOG" Style="{StaticResource Label}" Margin="0" VerticalAlignment="Center"/>
+                    <Button x:Name="CopyLogButton" Style="{StaticResource LinkButton}" Content="Copy" HorizontalAlignment="Right"
+                            ToolTip="Copy the whole log, for example to send it to someone"/>
+                </Grid>
+                <ListBox x:Name="DetailsList" Grid.Row="1" Background="Transparent" BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.ScrollUnit="Pixel">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <ContentPresenter/>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Text}" Foreground="{Binding Color}" FontFamily="Cascadia Mono, Consolas"
+                                       FontSize="12" TextWrapping="Wrap" Margin="8,1"/>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
         <!-- Footer (buttons change per page) -->
-        <Grid Grid.Row="2" Margin="0,18,0,0">
+        <Grid Grid.Row="3" Margin="0,18,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
@@ -186,7 +235,9 @@
                 <TextBlock x:Name="FooterText" Foreground="{StaticResource Muted}" VerticalAlignment="Center" TextWrapping="Wrap"/>
             </WrapPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                <Button x:Name="LogButton" Content="Show log" Margin="0,0,10,0" Visibility="Collapsed"/>
+                <Button x:Name="DetailsButton" Content="Show details" Margin="0,0,10,0" Visibility="Collapsed"/>
+                <Button x:Name="LogButton" Content="Show log" Margin="0,0,10,0" Visibility="Collapsed"
+                        ToolTip="Open the log file in Notepad"/>
                 <Button x:Name="SecondaryButton" Content="Cancel" Margin="0,0,10,0" Visibility="Collapsed"/>
                 <Button x:Name="PrimaryButton" Style="{StaticResource AccentButton}" Content="Start setup" MinWidth="140"/>
             </StackPanel>

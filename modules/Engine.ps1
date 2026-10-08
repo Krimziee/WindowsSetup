@@ -8,7 +8,7 @@ function Get-Presets {
     param([string]$Root)
     foreach ($file in Get-ChildItem (Join-Path $Root 'presets') -Filter *.psd1 | Sort-Object Name -Descending) {
         $config = Import-PowerShellDataFile $file.FullName
-        [pscustomobject]@{ Key = $file.BaseName; Name = $config.Name; Description = $config.Description; Path = $file.FullName }
+        [pscustomobject]@{ Key = $file.BaseName; Name = $config.Name; Description = $config.Description; Image = $config.Image; Path = $file.FullName }
     }
 }
 

@@ -73,6 +73,22 @@ function New-Card {
     $b
 }
 
+function Get-CardImage {
+    # A picture from ui\images for an option card, or nothing if the file is missing.
+    # Read fully into memory (OnLoad) so the file is never kept open.
+    param([string]$Root, [string]$Name)
+    if (-not $Name) { return }
+    $path = Join-Path $Root "ui\images\$Name"
+    if (-not (Test-Path $path)) { return }
+    $bitmap = New-Object System.Windows.Media.Imaging.BitmapImage
+    $bitmap.BeginInit()
+    $bitmap.CacheOption = 'OnLoad'
+    $bitmap.UriSource = New-Object System.Uri $path
+    $bitmap.EndInit()
+    $bitmap.Freeze()
+    $bitmap
+}
+
 function Get-ScrollViewer {
     # Finds the scroll area inside a control (used to keep the log scrolled to the end)
     param($Element)
@@ -554,17 +570,78 @@ function Add-LogRow {
     }
 }
 
+# ------------------------------------------------------------------
+#  Details panel (the full log, live)
+# ------------------------------------------------------------------
+
+function New-DetailsLine {
+    # One log line, colored by what it says
+    param([string]$Text)
+    $message = $Text -replace '^\[\d\d:\d\d:\d\d\] ', ''
+    $color = if ($message -match '^\[FAIL\]|^FATAL|^UI error') { $script:Colors.Fail }
+             elseif ($message -match '^\[WARN\]') { $script:Colors.Warn }
+             elseif ($message -match '^== ') { $script:Colors.Accent }
+             elseif ($message -match '^\[SKIP\]|^\[ -- \]|^\s+\|') { '#8A8A8A' }   # skipped, info and winget's own output
+             else { '#D0D0D0' }
+    [pscustomobject]@{ Text = $Text; Color = $color }
+}
+
+function Test-ScrolledToEnd {
+    param($ScrollViewer)
+    (-not $ScrollViewer) -or ($ScrollViewer.VerticalOffset -ge $ScrollViewer.ScrollableHeight - 4)
+}
+
+function Start-Details {
+    # Fills the panel with what the log file has so far; new lines then come through the queue
+    $s = $script:UiState
+    $s.Lines = New-Object 'System.Collections.ObjectModel.ObservableCollection[object]'
+    if ($script:Setup.LogFile -and (Test-Path $script:Setup.LogFile)) {
+        foreach ($line in (Get-Content $script:Setup.LogFile -ErrorAction SilentlyContinue)) { $s.Lines.Add((New-DetailsLine $line)) }
+    }
+    $script:Setup.LogQueue = $s.Queue   # the window's own log lines (Common.ps1 Write-Log)
+    $script:Ui.DetailsList.ItemsSource = $s.Lines
+    $script:Ui.DetailsButton.Visibility = 'Visible'
+}
+
+function Switch-Details {
+    # "Show details" / "Hide details": the panel shares the space with the progress or finish view
+    $open = $script:Ui.DetailsPanel.Visibility -ne 'Visible'
+    $script:Ui.DetailsPanel.Visibility = if ($open) { 'Visible' } else { 'Collapsed' }
+    $script:Ui.DetailsRow.Height = if ($open) { New-Object System.Windows.GridLength 1, 'Star' } else { [System.Windows.GridLength]::Auto }
+    $script:Ui.DetailsButton.Content = if ($open) { 'Hide details' } else { 'Show details' }
+    $lines = $script:UiState.Lines
+    if ($open -and $lines.Count) {
+        $script:Ui.DetailsList.UpdateLayout()
+        $script:Ui.DetailsList.ScrollIntoView($lines[$lines.Count - 1])
+    }
+}
+
+function Copy-DetailsLog {
+    $lines = $script:UiState.Lines
+    if (-not $lines -or -not $lines.Count) { return }
+    [System.Windows.Clipboard]::SetText((@($lines | ForEach-Object Text) -join "`r`n"))
+    # Short feedback on the button itself
+    $script:Ui.CopyLogButton.Content = 'Copied'
+    $timer = New-Object System.Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromSeconds(2)
+    $timer.Add_Tick({ $this.Stop(); $script:Ui.CopyLogButton.Content = 'Copy' })
+    $timer.Start()
+}
+
 function Receive-EngineEvents {
     # Called by the timer: moves everything the engine reported onto the screen
     $s = $script:UiState
-    $sv = $s.LogScroll
-    $atEnd = (-not $sv) -or ($sv.VerticalOffset -ge $sv.ScrollableHeight - 4)
+    $atEnd = Test-ScrolledToEnd $s.LogScroll
+    if (-not $s.DetailsScroll -and $script:Ui.DetailsPanel.Visibility -eq 'Visible') { $s.DetailsScroll = Get-ScrollViewer $script:Ui.DetailsList }
+    $detailsAtEnd = Test-ScrolledToEnd $s.DetailsScroll
+    $newLines = 0
 
     $event = $null
     $handled = 0
     while ($handled -lt 300 -and $s.Queue.TryDequeue([ref]$event)) {
         $handled++
         switch ($event.Type) {
+            'Log' { $s.Lines.Add((New-DetailsLine $event.Value)); $newLines++ }
             'Section' { $script:Ui.StepText.Text = $event.Label; Add-LogRow $event }
             'Pending' { Add-LogRow $event }
             'Item' {
@@ -580,6 +657,10 @@ function Receive-EngineEvents {
     }
     if ($handled -and $atEnd -and $s.Rows.Count) { $script:Ui.LogList.ScrollIntoView($s.Rows[$s.Rows.Count - 1]) }
     if ($handled -and -not $s.LogScroll) { $s.LogScroll = Get-ScrollViewer $script:Ui.LogList }
+    # The Details panel follows new lines too, unless the person scrolled up to read
+    if ($newLines -and $detailsAtEnd -and $script:Ui.DetailsPanel.Visibility -eq 'Visible') {
+        $script:Ui.DetailsList.ScrollIntoView($s.Lines[$s.Lines.Count - 1])
+    }
 
     if ($s.Running) {
         $elapsed = (Get-Date) - $s.StartedAt
@@ -617,6 +698,7 @@ function Start-Engine {
     $s.Queue     = New-Object 'System.Collections.Concurrent.ConcurrentQueue[object]'
     $s.Rows      = New-Object 'System.Collections.ObjectModel.ObservableCollection[object]'
     $script:Ui.LogList.ItemsSource = $s.Rows
+    Start-Details
     Write-Log "Window: starting '$($config.Name)' ($(if ($script:Ui.CustomRadio.IsChecked) { 'custom' } else { 'normal' }))"
 
     Show-Page 'Progress'
@@ -934,14 +1016,27 @@ function New-SetupPage {
         $radio.Style = $page.FindResource('CardRadio')
         $radio.GroupName = 'Preset'
         $radio.Tag = $p.Key
-        $content = New-Object System.Windows.Controls.StackPanel
-        [void]$content.Children.Add((New-Text $p.Name -Weight 'SemiBold'))
-        [void]$content.Children.Add((New-Text $p.Description $script:Colors.Muted 12))
+        $text = New-Object System.Windows.Controls.StackPanel
+        $text.VerticalAlignment = 'Center'
+        [void]$text.Children.Add((New-Text $p.Name -Weight 'SemiBold'))
+        [void]$text.Children.Add((New-Text $p.Description $script:Colors.Muted 12))
+        # Optional picture on the right (Image in the preset file), sized like the Custom install card's
+        $content = New-Object System.Windows.Controls.DockPanel
+        $picture = Get-CardImage $Root $p.Image
+        if ($picture) {
+            $image = New-Object System.Windows.Controls.Image -Property @{ Source = $picture; Height = 36; Margin = '12,0,0,0' }
+            [System.Windows.Media.RenderOptions]::SetBitmapScalingMode($image, 'HighQuality')
+            [System.Windows.Controls.DockPanel]::SetDock($image, 'Right')
+            [void]$content.Children.Add($image)
+        }
+        [void]$content.Children.Add($text)
         $radio.Content = $content
         $radio.Add_Checked({ Invoke-UiSafely { Select-PresetInUi $this.Tag } })
         [void]$script:Ui.PresetPanel.Children.Add($radio)
     }
     $script:Ui.PresetPanel.Children[0].IsChecked = $true
+    $picture = Get-CardImage $Root 'Custom.png'
+    if ($picture) { $script:Ui.CustomImage.Source = $picture; $script:Ui.CustomImage.Visibility = 'Visible' }
 
     $script:Ui.NormalRadio.Add_Checked({
         $script:Ui.NormalPanel.Visibility = 'Visible'; $script:Ui.CustomPanel.Visibility = 'Collapsed'
@@ -977,6 +1072,8 @@ function New-SetupPage {
         }
     })
     $script:Ui.LogButton.Add_Click({ Invoke-UiSafely { Start-Process notepad.exe -ArgumentList "`"$($script:Setup.LogFile)`"" } })
+    $script:Ui.DetailsButton.Add_Click({ Invoke-UiSafely { Switch-Details } })
+    $script:Ui.CopyLogButton.Add_Click({ Invoke-UiSafely { Copy-DetailsLog } })
 
     $page
 }
