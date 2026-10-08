@@ -120,42 +120,82 @@ function Get-ExtraApps {
 
 function Get-Categories {
     <#
-        The steps of a preset as the window shows them: a title, an icon and
-        (where it makes sense) the individual items that can be unticked.
-        -Extras adds the optional apps (unticked) next to similar apps.
+        The steps as the window shows them: a title, an icon and (where it
+        makes sense) the individual items.
+        Normal install: only the chosen preset ($Config).
+        Custom install: every preset's items (-Others) and the optional apps
+        (-Extras) are listed too. Items that aren't in the chosen preset are
+        marked Extra; the preset's own items are the ones that start ticked.
     #>
-    param($Config, $Extras)
+    param($Config, $Extras, $Others = @())
 
-    $settingName = @{}
-    foreach ($s in $script:SettingsCatalog) { $settingName[$s.Id] = $s.Name }
+    $all = @($Config) + @($Others)
+    $notMine = { param($cfg) -not [object]::ReferenceEquals($cfg, $Config) }
 
-    $bloat = @($Config.Bloatware.Apps | ForEach-Object { @{ Key = "store:$($_.Id)"; Name = $_.Name } })
-    $bloat += @($Config.Bloatware.ClassicApps | Where-Object { $_ } | ForEach-Object { @{ Key = "classic:$($_.DisplayName)"; Name = $_.Name } })
-    if ($Config.Bloatware.RemoveOneDrive) { $bloat += @{ Key = 'onedrive'; Name = 'OneDrive' } }
-
-    # Apps, group by group; optional extras join the group with the same name
-    $apps = @()
-    $groupNames = @($Config.Apps.Groups | ForEach-Object Name)
-    foreach ($extra in $Extras) { if ($extra.Name -notin $groupNames) { $groupNames += $extra.Name } }
-    foreach ($groupName in $groupNames) {
-        $presetGroup = $Config.Apps.Groups | Where-Object Name -eq $groupName
-        $extraGroup  = $Extras | Where-Object Name -eq $groupName
-        $apps += @($presetGroup.Packages | Where-Object { $_ } | ForEach-Object { @{ Key = $_.Id; Name = $_.Name; Group = $groupName } })
-        $apps += @($extraGroup.Packages  | Where-Object { $_ } | ForEach-Object { @{ Key = $_.Id; Name = $_.Name; Group = $groupName; Extra = $true } })
+    # Bloatware: the chosen preset's apps first, then the ones only other presets remove
+    $bloat = @(); $seen = @{}
+    foreach ($cfg in $all) {
+        $list  = @($cfg.Bloatware.Apps | Where-Object { $_ } | ForEach-Object { @{ Key = "store:$($_.Id)"; Name = $_.Name } })
+        $list += @($cfg.Bloatware.ClassicApps | Where-Object { $_ } | ForEach-Object { @{ Key = "classic:$($_.DisplayName)"; Name = $_.Name } })
+        if ($cfg.Bloatware.RemoveOneDrive) { $list += @{ Key = 'onedrive'; Name = 'OneDrive' } }
+        foreach ($item in $list) {
+            if ($seen[$item.Key]) { continue }
+            $seen[$item.Key] = $true; $item.Extra = & $notMine $cfg; $bloat += $item
+        }
     }
 
-    # The driver-updates setting has its own checkbox in the footer, so it isn't listed here
-    $settings = @($Config.Settings.Apply | Where-Object { $_ -ne $script:DriverSettingId } |
-                  ForEach-Object { @{ Key = $_; Name = $(if ($settingName[$_]) { $settingName[$_] } else { $_ }); Info = $script:SettingInfo[$_] } })
+    # Apps, group by group (same group names in every preset); optional extras join the group with the same name
+    $apps = @(); $seen = @{}
+    $groupNames = @()
+    foreach ($g in @($all | ForEach-Object { $_.Apps.Groups }) + @($Extras)) { if ($g -and $g.Name -notin $groupNames) { $groupNames += $g.Name } }
+    foreach ($groupName in $groupNames) {
+        $sources = @(foreach ($cfg in $all) { @{ Packages = ($cfg.Apps.Groups | Where-Object Name -eq $groupName).Packages; Extra = & $notMine $cfg } })
+        $sources += @{ Packages = ($Extras | Where-Object Name -eq $groupName).Packages; Extra = $true }
+        foreach ($source in $sources) {
+            foreach ($p in @($source.Packages | Where-Object { $_ })) {
+                if ($seen[$p.Id]) { continue }
+                $seen[$p.Id] = $true
+                $apps += @{ Key = $p.Id; Name = $p.Name; Group = $groupName; Extra = $source.Extra }
+            }
+        }
+    }
 
+    # Settings. The driver-updates setting has its own checkbox in the footer, so it isn't listed here.
+    $mine = @($Config.Settings.Apply | Where-Object { $_ -and $_ -ne $script:DriverSettingId })
+    $settingName = @{}
+    foreach ($s in $script:SettingsCatalog) { $settingName[$s.Id] = $s.Name }
+    if ($Others) {
+        # The full list in catalog order, grouped by kind (Look, Taskbar, ...)
+        $any = @($all | ForEach-Object { $_.Settings.Apply } | Where-Object { $_ -and $_ -ne $script:DriverSettingId } | Select-Object -Unique)
+        $settings = @(foreach ($s in $script:SettingsCatalog) {
+            if ($s.Id -notin $any) { continue }
+            @{ Key = $s.Id; Name = $s.Name; Info = $script:SettingInfo[$s.Id]; Group = $s.Category; Extra = $s.Id -notin $mine }
+        })
+    } else {
+        $settings = @($mine | ForEach-Object { @{ Key = $_; Name = $(if ($settingName[$_]) { $settingName[$_] } else { $_ }); Info = $script:SettingInfo[$_] } })
+    }
+
+    $redist = @(); $seen = @{}
+    foreach ($cfg in $all) {
+        foreach ($p in @($cfg.Redistributables.Packages | Where-Object { $_ })) {
+            if ($seen[$p.Id]) { continue }
+            $seen[$p.Id] = $true; $redist += @{ Key = $p.Id; Name = $p.Name; Extra = & $notMine $cfg }
+        }
+    }
+
+    # A step is listed when any preset shown has it; Ticked = the chosen preset runs it
+    $step = {
+        param([string]$Key, [string]$Title, $Items, [string]$Unit)
+        @{ Key = $Key; Title = $Title; Items = @($Items); Unit = $Unit
+           Enabled = [bool]($all | Where-Object { $_[$Key].Enabled }); Ticked = [bool]$Config[$Key].Enabled }
+    }
     @(
-        @{ Key = 'Bloatware';        Title = 'Remove bloatware';      Enabled = [bool]$Config.Bloatware.Enabled;        Items = $bloat;    Unit = 'apps' }
-        @{ Key = 'Settings';         Title = 'Windows settings';      Enabled = [bool]$Config.Settings.Enabled;         Items = $settings; Unit = 'changes' }
-        @{ Key = 'Redistributables'; Title = 'Game redistributables'; Enabled = [bool]$Config.Redistributables.Enabled
-           Items = @($Config.Redistributables.Packages | ForEach-Object { @{ Key = $_.Id; Name = $_.Name } }); Unit = 'packages' }
-        @{ Key = 'Apps';             Title = 'Apps';                  Enabled = [bool]$Config.Apps.Enabled;             Items = $apps;     Unit = 'apps' }
-        @{ Key = 'Drivers';          Title = 'Drivers';               Enabled = [bool]$Config.Drivers.Enabled;          Items = @() }
-        @{ Key = 'Cleanup';          Title = 'Cleanup';               Enabled = [bool]$Config.Cleanup.Enabled;          Items = @() }
+        & $step 'Bloatware'        'Remove bloatware'      $bloat    'apps'
+        & $step 'Settings'         'Windows settings'      $settings 'changes'
+        & $step 'Redistributables' 'Game redistributables' $redist   'packages'
+        & $step 'Apps'             'Apps'                  $apps     'apps'
+        & $step 'Drivers'          'Drivers'               @()       ''
+        & $step 'Cleanup'          'Cleanup'               @()       ''
     ) | Where-Object { $_.Enabled -and ($_.Items.Count -gt 0 -or $_.Key -in 'Drivers', 'Cleanup') }
 }
 
@@ -247,8 +287,9 @@ function Update-ChoiceFeedback {
 function Update-CustomPanel {
     <#
         One card per step: a checkbox for the whole step, and a "Show items"
-        link that opens the list of individual items. Everything starts
-        unticked; the person picks what they want (or presses "Select all").
+        link that opens the list of individual items. The list has everything
+        from every preset plus the optional apps; the chosen preset's own items
+        start ticked, so changing nothing runs the same as Normal install.
         Ticking a step ticks all its items; ticking only some items shows the
         step as "partly selected".
     #>
@@ -257,8 +298,11 @@ function Update-CustomPanel {
     $panel.Children.Clear()
     $script:UiState.CustomBoxes = @{}
     $script:UiState.BlockLinks  = New-Object System.Collections.Generic.List[object]   # per-step / per-group "Select all"
+    # The other presets, so their items can be picked too (Limit-ConfigToCustomChoices looks them up there)
+    $script:UiState.Others = @($script:UiState.Presets | Where-Object { $_.Key -ne $script:UiState.Preset.Key } |
+                               ForEach-Object { Import-PowerShellDataFile $_.Path })
 
-    foreach ($cat in Get-Categories $Config $script:UiState.Extras) {
+    foreach ($cat in Get-Categories $Config $script:UiState.Extras $script:UiState.Others) {
         $card  = New-Card
         $stack = New-Object System.Windows.Controls.StackPanel
 
@@ -331,7 +375,7 @@ function Update-CustomPanel {
                 $label.TextWrapping = 'NoWrap'
                 $label.TextTrimming = 'CharacterEllipsis'
                 $box.Content = $label
-                $box.IsChecked = $false
+                $box.IsChecked = $cat.Ticked -and -not $item.Extra   # the preset's own items start ticked
                 $box.Width = 250
                 if ($item.Info) {
                     # What the setting does: the full name in bold, then the explanation
@@ -343,7 +387,7 @@ function Update-CustomPanel {
                     $box.ToolTip = $item.Name
                 }
                 # The item knows its own key and its step, so a click can update the step's checkbox
-                $box.Tag = @{ Key = $item.Key; Category = $catBox; Items = $itemBoxes }
+                $box.Tag = @{ Key = $item.Key; Group = $item.Group; Category = $catBox; Items = $itemBoxes }
                 $box.Add_Click({ Invoke-UiSafely { Update-CategoryState $this.Tag.Category $this.Tag.Items; Update-ChoiceFeedback } })
                 [void]$wrap.Children.Add($box)
                 $itemBoxes.Add($box)
@@ -372,6 +416,7 @@ function Update-CustomPanel {
             }
         })
 
+        if ($itemBoxes.Count) { Update-CategoryState $catBox $itemBoxes } else { $catBox.IsChecked = $cat.Ticked }
         $script:UiState.CustomBoxes[$cat.Key] = @{ Category = $catBox; Items = $itemBoxes }
         $card.Child = $stack
         [void]$panel.Children.Add($card)
@@ -413,14 +458,13 @@ function Update-OptionTooltips {
 
 function Set-OptionDefaults {
     <#
-        Normal install: the footer options start the way the preset has them.
-        Custom install: like everything else in Custom, they start unticked.
+        The footer options start the way the preset has them, in Normal and
+        Custom install alike (like the preset's items in Custom).
     #>
     $config = $script:UiState.Config
-    $custom = [bool]$script:Ui.CustomRadio.IsChecked
-    $script:Ui.StartupCheck.IsChecked = (-not $custom) -and [bool]$config.Cleanup.DisableNewStartupApps
+    $script:Ui.StartupCheck.IsChecked = [bool]$config.Cleanup.DisableNewStartupApps
     $presetBlocksDrivers = [bool]$config.Settings.Enabled -and ($script:DriverSettingId -in $config.Settings.Apply)
-    $script:Ui.DriverCheck.IsChecked = (-not $custom) -and $presetBlocksDrivers -and -not $script:UiState.System.IsLaptop
+    $script:Ui.DriverCheck.IsChecked = $presetBlocksDrivers -and -not $script:UiState.System.IsLaptop
     $script:Ui.DriverCheck.IsEnabled = -not $script:UiState.System.IsLaptop
     Set-StartupCheckAvailable
 }
@@ -486,8 +530,25 @@ function Get-SelectedConfig {
     $config
 }
 
+function Get-FirstById {
+    # The first definition of each ticked Id, in the order given (the chosen preset comes first, so its details win)
+    param($Definitions, [string[]]$Ids, [string]$IdField = 'Id')
+    $seen = @{}
+    foreach ($d in $Definitions) {
+        if (-not $d) { continue }
+        $id = [string]$d[$IdField]
+        if ($id -in $Ids -and -not $seen[$id]) { $seen[$id] = $true; $d }
+    }
+}
+
 function Limit-ConfigToCustomChoices {
+    <#
+        Custom install: the run gets exactly what's ticked. A ticked item can
+        come from the chosen preset, another preset or the optional apps, so
+        each one is looked up in all of them (the chosen preset first).
+    #>
     param($config)
+    $all = @($config) + @($script:UiState.Others)
     foreach ($key in 'Bloatware', 'Settings', 'Redistributables', 'Apps', 'Drivers', 'Cleanup') {
         $boxes = $script:UiState.CustomBoxes[$key]
         # Partly selected ($null) counts as "run this step with the ticked items"
@@ -495,26 +556,35 @@ function Limit-ConfigToCustomChoices {
             if ($config[$key]) { $config[$key].Enabled = $false }
             continue
         }
+        # Ticked although the chosen preset doesn't have this step: take the step's options from a preset that does
+        if (-not $config[$key]) { $config[$key] = (@($script:UiState.Others | Where-Object { $_[$key] }) | Select-Object -First 1)[$key] }
+        $config[$key].Enabled = $true
         $chosen = @($boxes.Items | Where-Object { $_.IsChecked } | ForEach-Object { [string]$_.Tag.Key })
         switch ($key) {
             'Bloatware' {
-                $config.Bloatware.Apps        = @($config.Bloatware.Apps | Where-Object { "store:$($_.Id)" -in $chosen })
-                $config.Bloatware.ClassicApps = @($config.Bloatware.ClassicApps | Where-Object { $_ -and "classic:$($_.DisplayName)" -in $chosen })
+                $config.Bloatware.Apps        = @(Get-FirstById @($all | ForEach-Object { $_.Bloatware.Apps }) @($chosen -replace '^store:', ''))
+                $config.Bloatware.ClassicApps = @(Get-FirstById @($all | ForEach-Object { $_.Bloatware.ClassicApps }) @($chosen -replace '^classic:', '') 'DisplayName')
                 $config.Bloatware.RemoveOneDrive = 'onedrive' -in $chosen
             }
-            'Settings'         { $config.Settings.Apply = @($config.Settings.Apply | Where-Object { $_ -in $chosen }) }
-            'Redistributables' { $config.Redistributables.Packages = @($config.Redistributables.Packages | Where-Object { $_.Id -in $chosen }) }
+            'Settings'         { $config.Settings.Apply = $chosen }   # catalog order, as listed
+            'Redistributables' { $config.Redistributables.Packages = @(Get-FirstById @($all | ForEach-Object { $_.Redistributables.Packages }) $chosen) }
             'Apps' {
-                foreach ($g in $config.Apps.Groups) { $g.Packages = @($g.Packages | Where-Object { $_.Id -in $chosen }) }
-                # Add the ticked optional extras to their group (creating it if the preset doesn't have it)
-                foreach ($extraGroup in $script:UiState.Extras) {
-                    $picked = @($extraGroup.Packages | Where-Object { $_.Id -in $chosen })
-                    if (-not $picked) { continue }
-                    $target = $config.Apps.Groups | Where-Object Name -eq $extraGroup.Name | Select-Object -First 1
-                    if ($target) { $target.Packages = @($target.Packages) + $picked }
-                    else { $config.Apps.Groups = @($config.Apps.Groups) + @{ Name = $extraGroup.Name; Packages = $picked } }
+                # Every app goes into the group it's listed under, with its full details (AsUser, Location, Source)
+                $definitions = @(foreach ($cfg in $all) { foreach ($g in $cfg.Apps.Groups) { $g.Packages } }) +
+                               @(foreach ($g in $script:UiState.Extras) { $g.Packages })
+                $packages = @(Get-FirstById $definitions $chosen)
+                $groups = [ordered]@{}
+                foreach ($box in @($boxes.Items | Where-Object { $_.IsChecked })) {
+                    $package = $packages | Where-Object Id -eq $box.Tag.Key | Select-Object -First 1
+                    if (-not $package) { continue }
+                    if (-not $groups.Contains($box.Tag.Group)) { $groups[$box.Tag.Group] = @() }
+                    $groups[$box.Tag.Group] += $package
                 }
-                $config.Apps.Groups = @($config.Apps.Groups | Where-Object { $_.Packages.Count })
+                $config.Apps.Groups = @(foreach ($name in $groups.Keys) { @{ Name = $name; Packages = $groups[$name] } })
+            }
+            'Cleanup' {
+                # Startup apps every preset keeps (so an app picked from another preset keeps its startup entry too)
+                $config.Cleanup.KeepStartupApps = @($all | ForEach-Object { $_.Cleanup.KeepStartupApps } | Where-Object { $_ } | Select-Object -Unique)
             }
         }
         if ($boxes.Items.Count -and -not $chosen) { $config[$key].Enabled = $false }

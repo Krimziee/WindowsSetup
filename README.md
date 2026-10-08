@@ -35,7 +35,7 @@ Two setups are included:
 - **Recommended** – safe defaults for anyone, a few essential apps.
 - **Power user** – the full app list and advanced tweaks.
 
-Choose **Custom install** to pick exactly what runs: everything starts unticked, with **Select all** links for everything, for each step and for each app group. Custom also offers optional extras: GOG Galaxy, Firefox, Brave, Telegram, WhatsApp, Bitwarden, Dropbox, AnyDesk, VS Code, WinRAR and CrystalDiskInfo.
+Choose **Custom install** to pick exactly what runs. It lists everything from both setups, and the chosen setup's items start ticked: Recommended → Custom changes nothing until you tick or untick something, and you can add Power user's apps and settings without switching setups. Settings are grouped by kind (Look, Taskbar, Explorer, ...), and there are **Select all** links for everything, for each step and for each group. Custom also offers optional extras: GOG Galaxy, Firefox, Brave, Telegram, WhatsApp, Bitwarden, Dropbox, AnyDesk, VS Code, WinRAR and CrystalDiskInfo.
 
 ## Good to know
 
