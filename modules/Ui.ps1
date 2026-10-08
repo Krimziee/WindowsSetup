@@ -68,7 +68,7 @@ function New-Icon {
 function New-Card {
     param([string]$Margin = '0,0,0,10')
     $b = New-Object System.Windows.Controls.Border
-    $b.Style = $script:Ui.Window.FindResource('Card')
+    $b.Style = $script:Ui.Page.FindResource('Card')
     $b.Margin = $Margin
     $b
 }
@@ -189,7 +189,7 @@ function Update-NormalPanel {
         $card.Child = $grid
         if ($cat.Key -eq 'Settings') {
             # Hovering over the settings card lists them; Custom shows what each one does
-            $card.Background = $script:Ui.Window.FindResource('Surface')   # needed so the whole card reacts to hovering
+            $card.Background = $script:Ui.Page.FindResource('Surface')   # needed so the whole card reacts to hovering
             $card.ToolTip = (@($cat.Items | ForEach-Object { "- $($_.Name)" }) -join "`n") +
                             "`n`nChoose Custom install and hover over a setting to see what it does."
         }
@@ -262,7 +262,7 @@ function Update-CustomPanel {
         $itemBoxes = New-Object System.Collections.Generic.List[object]
         if ($cat.Items.Count) {
             $toggle = New-Object System.Windows.Controls.Button
-            $toggle.Style = $script:Ui.Window.FindResource('LinkButton')
+            $toggle.Style = $script:Ui.Page.FindResource('LinkButton')
             $toggle.Content = 'Show items'
             $toggle.HorizontalAlignment = 'Right'
             $toggle.VerticalAlignment = 'Top'
@@ -287,7 +287,7 @@ function Update-CustomPanel {
                     $blockHeader.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{ Width = 'Auto' }))
                     if ($item.Group) { [void]$blockHeader.Children.Add((New-Text $item.Group $script:Colors.Muted 12)) }
                     $blockLink = New-Object System.Windows.Controls.Button
-                    $blockLink.Style = $script:Ui.Window.FindResource('LinkButton')
+                    $blockLink.Style = $script:Ui.Page.FindResource('LinkButton')
                     $blockLink.Content = 'Select all'
                     $blockLink.FontSize = 12
                     $blockLink.Margin = '0,0,14,0'
@@ -600,6 +600,14 @@ function Start-Engine {
         $script:Ui.FooterText.Foreground = $script:Colors.Fail
         return
     }
+    $script:Ui.FooterText.Text = ''
+    if (-not (Show-StartConfirmation $config)) { return }
+
+    # In Krimz's Toolkit the log starts here, so just opening the toolkit leaves no log on the desktop
+    if (-not $script:Setup.LogFile) {
+        Initialize-Log
+        Write-Log "Windows Setup $($script:SetupVersion) started from Krimz's Toolkit (dry run: $($script:Setup.DryRun))"
+    }
     $s = $script:UiState
     $s.Config    = $config
     $s.Estimate  = Get-WorkEstimate $config
@@ -642,6 +650,7 @@ function Start-Engine {
     $s.Timer.Interval = [TimeSpan]::FromMilliseconds(150)
     $s.Timer.Add_Tick({ Invoke-UiSafely { Receive-EngineEvents } })
     $s.Timer.Start()
+    Set-SetupBusy $true
 }
 
 function Stop-Engine {
@@ -665,6 +674,7 @@ function Show-Finish {
     $s = $script:UiState
     if (-not $s.Running) { return }
     $s.Running = $false
+    Set-SetupBusy $false
     $script:Ui.Progress.Value = 100
 
     # Counts come from the rows on screen, so they also work after an error or cancel
@@ -747,11 +757,13 @@ function Start-RestartCountdown {
         }
     })
     $s.Countdown.Start()
+    Set-SetupBusy $true
 }
 
 function Stop-RestartCountdown {
     $s = $script:UiState
     if ($s.Countdown) { $s.Countdown.Stop(); $s.Countdown = $null }
+    Set-SetupBusy $false
     $script:Ui.FooterText.Text = 'Restart the PC yourself to finish setup.'
     $script:Ui.SecondaryButton.Visibility = 'Collapsed'
     $script:Ui.PrimaryButton.Content = 'Close'
@@ -765,26 +777,126 @@ function Invoke-Restart {
 }
 
 # ------------------------------------------------------------------
-#  Window
+#  Start confirmation
 # ------------------------------------------------------------------
 
-function Show-SetupWindow {
-    # -NoShow builds the window without opening it (used for automated screenshots)
-    param([string]$Root, [string]$Version, $System, [switch]$NoShow)
+function Show-StartConfirmation {
+    <#
+        "Start the setup?" with a short summary of what will run. Returns
+        $true only when the person presses Start setup.
+    #>
+    param($Config)
 
-    Enable-DpiAwareness
-    [xml]$xaml = Get-Content (Join-Path $Root 'ui\MainWindow.xaml') -Raw -Encoding UTF8
-    $window = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
-    $script:Ui.Window = $window
+    [xml]$xaml = Get-Content (Join-Path $script:UiState.Root 'ui\ConfirmDialog.xaml') -Raw -Encoding UTF8
+    $dialog = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
+    $owner = [System.Windows.Window]::GetWindow($script:Ui.Page)
+    if ($owner) { $dialog.Owner = $owner }
+
+    $mode = if ($script:Ui.CustomRadio.IsChecked) { 'custom install' } else { 'normal install' }
+    $dialog.FindName('IntroText').Text = "$($Config.Name), $mode. Nothing has been changed yet."
+
+    # The steps that will run, with how many items each has
+    $steps = $dialog.FindName('StepsPanel')
+    $lines = @(foreach ($cat in Get-Categories $Config) {
+        $count = @($cat.Items).Count
+        $detail = if ($count) { "$count $($cat.Unit)" } else { '' }
+        @{ Glyph = $script:Glyph[$cat.Key]; Title = $cat.Title; Detail = $detail }
+    })
+    if ($Config.Settings.Enabled -and $script:DriverSettingId -in $Config.Settings.Apply) {
+        $lines += @{ Glyph = $script:Glyph.Drivers; Title = 'Turn off driver updates from Windows Update'; Detail = '' }
+    }
+    if ($Config.Cleanup.Enabled -and $Config.Cleanup.DisableNewStartupApps) {
+        $lines += @{ Glyph = $script:Glyph.Cleanup; Title = 'Stop new apps from starting with Windows'; Detail = '' }
+    }
+    foreach ($line in $lines) {
+        $row = New-Object System.Windows.Controls.Grid
+        $row.Margin = '0,3'
+        $row.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{ Width = '30' }))
+        $row.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition))
+        $row.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{ Width = 'Auto' }))
+        $icon = New-Icon $line.Glyph $script:Colors.Accent 15
+        $title = New-Text $line.Title -Size 13.5
+        $title.VerticalAlignment = 'Center'
+        $detail = New-Text $line.Detail $script:Colors.Muted 13 -Margin '12,0,0,0'
+        $detail.VerticalAlignment = 'Center'
+        [System.Windows.Controls.Grid]::SetColumn($title, 1)
+        [System.Windows.Controls.Grid]::SetColumn($detail, 2)
+        [void]$row.Children.Add($icon); [void]$row.Children.Add($title); [void]$row.Children.Add($detail)
+        [void]$steps.Children.Add($row)
+    }
+
+    # What to expect
+    $facts = $dialog.FindName('FactsPanel')
+    $mb = Get-DownloadEstimateMB $Config
+    $download = if ($mb -lt 1) { 'Nothing to download' } elseif ($mb -lt 1000) { 'About {0:N0} MB to download' -f $mb } else { 'About {0:N1} GB to download' -f ($mb / 1024) }
+    $restart  = if ($Config.Finish.Restart) { 'The PC restarts when it''s done (you can stop that)' } else { 'The PC doesn''t restart by itself' }
+    foreach ($fact in @(
+        @{ Glyph = [char]0xE896; Text = $download }
+        @{ Glyph = [char]0xE777; Text = $restart }
+        @{ Glyph = [char]0xE81C; Text = 'A restore point is made first. You can cancel while it runs; finished steps stay done.' }
+    )) {
+        $row = New-Object System.Windows.Controls.Grid
+        $row.Margin = '0,3'
+        $row.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{ Width = '30' }))
+        $row.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition))
+        $icon = New-Icon $fact.Glyph $script:Colors.Muted 14
+        $icon.VerticalAlignment = 'Top'; $icon.Margin = '0,2,0,0'
+        $text = New-Text $fact.Text $script:Colors.Muted 13
+        [System.Windows.Controls.Grid]::SetColumn($text, 1)
+        [void]$row.Children.Add($icon); [void]$row.Children.Add($text)
+        [void]$facts.Children.Add($row)
+    }
+    if ($script:Setup.DryRun) { $dialog.FindName('DryRunNote').Visibility = 'Visible' }
+
+    $dialog.FindName('ConfirmButton').Add_Click({ [System.Windows.Window]::GetWindow($this).DialogResult = $true })
+    $dialog.Add_MouseLeftButtonDown({ try { $this.DragMove() } catch { } })
+    $dialog.Add_ContentRendered({ $this.FindName('CancelButton').Focus() | Out-Null })
+    [bool]$dialog.ShowDialog()
+}
+
+# ------------------------------------------------------------------
+#  Page and window
+# ------------------------------------------------------------------
+
+function Set-SetupBusy {
+    # Tells Krimz's Toolkit (if the page is shown there) that setup is working
+    param([bool]$Busy)
+    if ($script:UiState.OnBusy) { try { & $script:UiState.OnBusy $Busy } catch { } }
+}
+
+function Import-SetupTheme {
+    # The shared look (Theme.xaml) becomes the application's resources, so the
+    # page and the dialog find its styles. Krimz's Toolkit does this itself.
+    param([string]$Root)
+    [xml]$xaml = Get-Content (Join-Path $Root 'ui\Theme.xaml') -Raw -Encoding UTF8
+    $theme = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
+    $app = [System.Windows.Application]::Current
+    if (-not $app) { $app = New-Object System.Windows.Application }
+    $app.ShutdownMode = 'OnExplicitShutdown'
+    $app.Resources = $theme
+}
+
+function New-SetupPage {
+    <#
+        Builds the Windows Setup page (ui\Page.xaml) and wires it up. Used by
+        the standalone window below and by Krimz's Toolkit (modules\Page.ps1).
+        -OnBusy is called with $true / $false when setup starts and stops.
+    #>
+    param([string]$Root, [string]$Version, $System, [scriptblock]$OnBusy)
+
+    [xml]$xaml = Get-Content (Join-Path $Root 'ui\Page.xaml') -Raw -Encoding UTF8
+    $page = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
+    $script:Ui.Page = $page
     $xaml.SelectNodes('//*[@*[local-name()="Name"]]') | ForEach-Object {
         $name = $_.GetAttribute('Name', 'http://schemas.microsoft.com/winfx/2006/xaml')
-        if ($name) { $script:Ui[$name] = $window.FindName($name) }
+        if ($name) { $script:Ui[$name] = $page.FindName($name) }
     }
 
     $s = $script:UiState
     $s.Root    = $Root
     $s.System  = $System
     $s.Running = $false
+    $s.OnBusy  = $OnBusy
     $s.Presets = @(Get-Presets $Root)
     $s.Extras  = @(Get-ExtraApps $Root)
     $sizeFile = Join-Path $Root 'catalog\DownloadSizes.psd1'
@@ -792,15 +904,6 @@ function Show-SetupWindow {
 
     $script:Ui.VersionText.Text = "v$Version"
     if ($script:Setup.DryRun) { $script:Ui.DryRunBadge.Visibility = 'Visible' }
-
-    # Dark title bar to match the window (Windows 10 2004+ / Windows 11)
-    $window.Add_SourceInitialized({
-        try {
-            $hwnd = (New-Object System.Windows.Interop.WindowInteropHelper $script:Ui.Window).Handle
-            $on = 1
-            [void][WindowsSetup.Dpi]::DwmSetWindowAttribute($hwnd, 20, [ref]$on, 4)
-        } catch { }
-    })
 
     # "Your PC" card: a small two-column table
     # (an ordered hashtable keeps the pairs together; nested arrays would get flattened)
@@ -828,7 +931,7 @@ function Show-SetupWindow {
     # One card per preset
     foreach ($p in $s.Presets) {
         $radio = New-Object System.Windows.Controls.RadioButton
-        $radio.Style = $window.FindResource('CardRadio')
+        $radio.Style = $page.FindResource('CardRadio')
         $radio.GroupName = 'Preset'
         $radio.Tag = $p.Key
         $content = New-Object System.Windows.Controls.StackPanel
@@ -859,7 +962,7 @@ function Show-SetupWindow {
             $s = $script:UiState
             if (-not $s.StartedAt)       { Start-Engine }                    # Start page
             elseif ($s.Countdown)        { Invoke-Restart }                  # "Restart now"
-            else                         { $script:Ui.Window.Close() }       # "Close"
+            else                         { [System.Windows.Window]::GetWindow($script:Ui.Page).Close() }   # "Close"
         }
     })
     $script:Ui.SecondaryButton.Add_Click({
@@ -875,16 +978,51 @@ function Show-SetupWindow {
     })
     $script:Ui.LogButton.Add_Click({ Invoke-UiSafely { Start-Process notepad.exe -ArgumentList "`"$($script:Setup.LogFile)`"" } })
 
+    $page
+}
+
+function Test-SetupCanClose {
+    # Asked before the window closes. While setup runs, the person decides.
+    $s = $script:UiState
+    if ($s.Running) {
+        $answer = [System.Windows.MessageBox]::Show('Setup is still running. Stop it and close?', 'Windows Setup', 'YesNo', 'Warning')
+        if ($answer -ne 'Yes') { return $false }
+        Stop-Engine
+    }
+    $true
+}
+
+function Close-SetupPage {
+    # The window is closing: stop the timers
+    $s = $script:UiState
+    if ($s.Countdown) { $s.Countdown.Stop() }
+    if ($s.Timer) { $s.Timer.Stop() }
+}
+
+function Show-SetupWindow {
+    # The standalone window. -NoShow builds it without opening it (used for automated screenshots)
+    param([string]$Root, [string]$Version, $System, [switch]$NoShow)
+
+    Enable-DpiAwareness
+    Import-SetupTheme $Root
+    [xml]$xaml = Get-Content (Join-Path $Root 'ui\MainWindow.xaml') -Raw -Encoding UTF8
+    $window = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
+    $script:Ui.Window = $window
+    $window.Content = New-SetupPage -Root $Root -Version $Version -System $System
+
+    # Dark title bar to match the window (Windows 10 2004+ / Windows 11)
+    $window.Add_SourceInitialized({
+        try {
+            $hwnd = (New-Object System.Windows.Interop.WindowInteropHelper $script:Ui.Window).Handle
+            $on = 1
+            [void][WindowsSetup.Dpi]::DwmSetWindowAttribute($hwnd, 20, [ref]$on, 4)
+        } catch { }
+    })
+
     $window.Add_Closing({
         param($sender, $e)
-        $s = $script:UiState
-        if ($s.Running) {
-            $answer = [System.Windows.MessageBox]::Show('Setup is still running. Stop it and close?', 'Windows Setup', 'YesNo', 'Warning')
-            if ($answer -ne 'Yes') { $e.Cancel = $true; return }
-            Stop-Engine
-        }
-        if ($s.Countdown) { $s.Countdown.Stop() }
-        if ($s.Timer) { $s.Timer.Stop() }
+        if (-not (Test-SetupCanClose)) { $e.Cancel = $true; return }
+        Close-SetupPage
     })
 
     if ($NoShow) { return $window }
