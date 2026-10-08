@@ -3,6 +3,8 @@
     result tracking, dry-run support and registry writes.
 #>
 
+$script:SetupVersion = '0.9'   # shown in the window and the log
+
 $script:Setup = @{
     IsAdmin = $null
     DryRun  = $false

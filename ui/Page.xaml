@@ -1,0 +1,195 @@
+<!--
+    Windows Setup page. Used by the standalone window (MainWindow.xaml) and by
+    the Windows Setup tab in Krimz's Toolkit. Three views share the page:
+    StartPage (choose a setup), ProgressPage (live progress), FinishPage (summary).
+    Controls with x:Name are found and wired up by modules\Ui.ps1.
+    Styles come from Theme.xaml (loaded as the application's resources).
+-->
+<UserControl xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource Background}" Foreground="#F3F3F3"
+             FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="14">
+    <Grid Margin="28,22,28,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,18">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Windows Setup" FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="26" FontWeight="SemiBold"/>
+                <TextBlock x:Name="VersionText" Foreground="{StaticResource Muted}" FontSize="13" Margin="10,0,0,4" VerticalAlignment="Bottom"/>
+                <Border x:Name="DryRunBadge" Visibility="Collapsed" Background="#3D3415" CornerRadius="4" Padding="8,2" Margin="12,0,0,4" VerticalAlignment="Bottom">
+                    <TextBlock Text="Dry run: nothing will be changed" Foreground="#FCE100" FontSize="12"/>
+                </Border>
+            </StackPanel>
+            <TextBlock x:Name="SubtitleText" Foreground="{StaticResource Muted}" Margin="0,4,0,0" Text="Choose a setup and press Start. Everything after that is automatic."/>
+        </StackPanel>
+
+        <!-- ============================ Start page ============================ -->
+        <Grid x:Name="StartPage" Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="24"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="YOUR PC" Style="{StaticResource Label}"/>
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,20">
+                        <StackPanel x:Name="PcInfoPanel"/>
+                    </Border>
+
+                    <TextBlock Text="SETUP" Style="{StaticResource Label}"/>
+                    <StackPanel x:Name="PresetPanel" Margin="0,0,0,12"/>
+
+                    <TextBlock Text="INSTALL TYPE" Style="{StaticResource Label}"/>
+                    <RadioButton x:Name="NormalRadio" Style="{StaticResource CardRadio}" GroupName="Mode" IsChecked="True">
+                        <StackPanel>
+                            <TextBlock Text="Normal install" FontWeight="SemiBold"/>
+                            <TextBlock Text="Everything in the setup" Foreground="{StaticResource Muted}" FontSize="12"/>
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton x:Name="CustomRadio" Style="{StaticResource CardRadio}" GroupName="Mode">
+                        <StackPanel>
+                            <TextBlock Text="Custom install" FontWeight="SemiBold"/>
+                            <TextBlock Text="Pick what runs" Foreground="{StaticResource Muted}" FontSize="12"/>
+                        </StackPanel>
+                    </RadioButton>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0">
+                    <TextBlock x:Name="RightTitle" Text="WHAT WILL HAPPEN" Style="{StaticResource Label}"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-3,14,0">
+                        <!-- Download estimate, updated with every choice -->
+                        <StackPanel x:Name="SizePanel" Orientation="Horizontal" Background="Transparent">
+                            <TextBlock Text="&#xE896;" FontFamily="{StaticResource Icons}" FontSize="13" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,1,6,0"/>
+                            <TextBlock x:Name="SizeText" Foreground="{StaticResource Muted}" FontSize="13" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Button x:Name="SelectAllButton" Style="{StaticResource LinkButton}" Content="Select all" Margin="18,0,0,0" Visibility="Collapsed"/>
+                    </StackPanel>
+                </Grid>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <StackPanel x:Name="NormalPanel"/>
+                        <StackPanel x:Name="CustomPanel" Visibility="Collapsed"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+
+        <!-- ============================ Progress page ============================ -->
+        <Grid x:Name="ProgressPage" Grid.Row="1" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0" Margin="0,0,0,10">
+                <TextBlock x:Name="StepText" FontSize="18" FontWeight="SemiBold" Text="Getting ready"/>
+                <TextBlock x:Name="ElapsedText" HorizontalAlignment="Right" VerticalAlignment="Bottom" Foreground="{StaticResource Muted}" Text="0:00"/>
+            </Grid>
+            <ProgressBar x:Name="Progress" Grid.Row="1" Minimum="0" Maximum="100" Value="0" Margin="0,0,0,16"/>
+            <Border Grid.Row="2" Style="{StaticResource Card}" Padding="6,8">
+                <ListBox x:Name="LogList" Background="Transparent" BorderThickness="0" Foreground="#F3F3F3"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <ContentPresenter/>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="{Binding Margin}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="30"/>
+                                    <ColumnDefinition Width="340"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding Icon}" Foreground="{Binding IconColor}" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                           FontSize="13" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Label}" FontWeight="{Binding Weight}" Foreground="{Binding LabelColor}"
+                                           FontSize="{Binding Size}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Text="{Binding Value}" Foreground="{Binding ValueColor}" TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" Margin="8,0,8,0"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+        </Grid>
+
+        <!-- ============================ Finish page ============================ -->
+        <Grid x:Name="FinishPage" Grid.Row="1" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,18">
+                <Border x:Name="ResultBadge" Width="52" Height="52" CornerRadius="26" Background="#1F3A26">
+                    <TextBlock x:Name="ResultIcon" Text="&#xE73E;" FontFamily="{StaticResource Icons}" FontSize="24" Foreground="#6CCB5F"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel Margin="16,0,0,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="ResultTitle" FontSize="22" FontWeight="SemiBold" Text="Setup finished"/>
+                    <TextBlock x:Name="ResultSubtitle" Foreground="{StaticResource Muted}" Margin="0,2,0,0"/>
+                </StackPanel>
+            </StackPanel>
+            <UniformGrid x:Name="CountsGrid" Grid.Row="1" Columns="4" Margin="0,0,0,18">
+                <Border Style="{StaticResource Card}" Margin="0,0,10,0">
+                    <StackPanel><TextBlock Text="Done" Style="{StaticResource Label}" Margin="0"/><TextBlock x:Name="OkCount" FontSize="26" FontWeight="SemiBold" Foreground="#6CCB5F" Text="0"/></StackPanel>
+                </Border>
+                <Border Style="{StaticResource Card}" Margin="0,0,10,0">
+                    <StackPanel><TextBlock Text="Skipped" Style="{StaticResource Label}" Margin="0"/><TextBlock x:Name="SkipCount" FontSize="26" FontWeight="SemiBold" Foreground="#A6A6A6" Text="0"/></StackPanel>
+                </Border>
+                <Border Style="{StaticResource Card}" Margin="0,0,10,0">
+                    <StackPanel><TextBlock Text="Warnings" Style="{StaticResource Label}" Margin="0"/><TextBlock x:Name="WarnCount" FontSize="26" FontWeight="SemiBold" Foreground="#FCE100" Text="0"/></StackPanel>
+                </Border>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel><TextBlock Text="Failed" Style="{StaticResource Label}" Margin="0"/><TextBlock x:Name="FailCount" FontSize="26" FontWeight="SemiBold" Foreground="#FF99A4" Text="0"/></StackPanel>
+                </Border>
+            </UniformGrid>
+            <Border Grid.Row="2" Style="{StaticResource Card}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="ProblemsPanel"/>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- Footer (buttons change per page) -->
+        <Grid Grid.Row="2" Margin="0,18,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <!-- WrapPanel: on a narrow window the options move to a second line instead of under the buttons -->
+            <WrapPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                <CheckBox x:Name="RestartCheck" Content="Restart when finished" IsChecked="True" Margin="0,4,24,4"/>
+                <CheckBox x:Name="StartupCheck" Content="Disable unnecessary startup apps" Margin="0,4,24,4"/>
+                <CheckBox x:Name="DriverCheck" Content="Disable Windows driver updates" Margin="0,4,24,4"/>
+                <TextBlock x:Name="FooterText" Foreground="{StaticResource Muted}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            </WrapPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <Button x:Name="LogButton" Content="Show log" Margin="0,0,10,0" Visibility="Collapsed"/>
+                <Button x:Name="SecondaryButton" Content="Cancel" Margin="0,0,10,0" Visibility="Collapsed"/>
+                <Button x:Name="PrimaryButton" Style="{StaticResource AccentButton}" Content="Start setup" MinWidth="140"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>

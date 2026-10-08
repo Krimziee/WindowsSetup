@@ -20,9 +20,8 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'   # progress bars make downloads much slower in PowerShell 5.1
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-$Version = '0.9'
-
 . (Join-Path $PSScriptRoot 'modules\Load-Modules.ps1')
+$Version = $script:SetupVersion
 $script:Setup.DryRun = [bool]$DryRun
 Initialize-Log
 Write-Log "Windows Setup $Version started (dry run: $DryRun, console: $Console)"
