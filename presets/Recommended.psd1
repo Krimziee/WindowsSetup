@@ -52,14 +52,19 @@
         )
     }
 
-    # A small set of essentials; more can be picked in Custom mode later
+    # A small set of essentials; more can be picked in Custom mode.
+    # Group names match the Power user preset, so in Custom mode each app sits next to similar ones.
     Apps = @{
         Enabled = $true
         Groups = @(
-            @{ Name = 'Essentials'; Packages = @(
+            @{ Name = 'Game launchers'; Packages = @(
+                @{ Id = 'Valve.Steam';           Name = 'Steam' }
+            ) }
+            @{ Name = 'Everyday'; Packages = @(
                 @{ Id = 'Google.Chrome';         Name = 'Google Chrome' }
                 @{ Id = 'Discord.Discord';       Name = 'Discord' }
-                @{ Id = 'Valve.Steam';           Name = 'Steam' }
+            ) }
+            @{ Name = 'Utilities'; Packages = @(
                 @{ Id = '7zip.7zip';             Name = '7-Zip' }
                 @{ Id = 'VideoLAN.VLC';          Name = 'VLC' }
                 @{ Id = 'Adobe.Acrobat.Reader.64-bit'; Name = 'Adobe Acrobat Reader' }
