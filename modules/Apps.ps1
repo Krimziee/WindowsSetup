@@ -177,6 +177,46 @@ function Update-WingetPackage {
     }
 }
 
+# Game launchers that open their own window as soon as they are installed.
+# Package Id -> names of the programs (without .exe) to close afterwards.
+$script:LauncherProcesses = @{
+    'Blizzard.BattleNet'       = @('Battle.net', 'Battle.net Launcher')
+    'ElectronicArts.EADesktop' = @('EADesktop', 'EALauncher', 'EALocalHostSvc')
+    'Ubisoft.Connect'          = @('UbisoftConnect', 'upc', 'UplayWebCore', 'UbisoftGameLauncher')
+}
+
+function Get-LauncherProcesses {
+    param([string[]]$Names)
+    @(Get-Process -Name $Names -ErrorAction SilentlyContinue)
+}
+
+function Close-NewLauncherWindows {
+    <#
+        Closes the launcher that an installer opens by itself, so it doesn't
+        pop up on screen. Programs that were already running before the
+        install (their process ids are in $Before) are left alone.
+    #>
+    param([string]$Id, [int[]]$Before = @())
+    $names = $script:LauncherProcesses[$Id]
+    if (-not $names) { return }
+    $closed   = $false
+    $deadline = (Get-Date).AddSeconds(12)
+    $quietFor = 0
+    while ((Get-Date) -lt $deadline -and $quietFor -lt 3) {
+        $new = @(Get-LauncherProcesses $names | Where-Object { $Before -notcontains $_.Id })
+        if ($new) {
+            $new | ForEach-Object {
+                Write-Log "  closing $($_.ProcessName) (opened by the installer)"
+                Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+            }
+            $closed = $true; $quietFor = 0
+        } elseif ($closed) {
+            $quietFor++        # closed something; stop once nothing new shows up for 3 checks
+        }
+        Start-Sleep -Seconds 1
+    }
+}
+
 function Install-StoreApp {
     <#
         Installs an app from the Microsoft Store through winget. Store apps
@@ -212,6 +252,11 @@ function Install-WingetPackage {
 
     $name  = $Package.Name
     $timer = [Diagnostics.Stopwatch]::StartNew()
+    $installerRan = $false
+    $launcherBefore = @()
+    if ($script:LauncherProcesses[$Package.Id]) {
+        $launcherBefore = @(Get-LauncherProcesses $script:LauncherProcesses[$Package.Id] | ForEach-Object { $_.Id })
+    }
     try {
         if ($Package.Source -eq 'msstore') {
             Install-StoreApp $Package
@@ -228,6 +273,7 @@ function Install-WingetPackage {
             return
         }
 
+        $installerRan = $true
         # Fast path: the installer was already downloaded in the background
         $folder = Wait-Download $Package.Id $name
         if ($folder) {
@@ -279,6 +325,10 @@ function Install-WingetPackage {
         Write-Log "Installing $name failed: $($_.Exception.Message)"
         Write-Item $name "Failed: $($_.Exception.Message)" 'Fail'
     } finally {
+        if ($installerRan) {
+            try { Close-NewLauncherWindows $Package.Id $launcherBefore }
+            catch { Write-Log "  couldn't close the $name window: $($_.Exception.Message)" }
+        }
         # Timing per app, to see later where the time goes
         Write-Log ("  {0} took {1:N0} s" -f $name, $timer.Elapsed.TotalSeconds)
     }
