@@ -118,6 +118,22 @@ function Get-ExtraApps {
     if (Test-Path $file) { (Import-PowerShellDataFile $file).Groups } else { @() }
 }
 
+# Order of the apps in the Custom list (by winget id, within their group).
+# Apps that aren't listed here come last, in alphabetical order.
+$script:AppListOrder = @(
+    # Game launchers
+    'Valve.Steam', 'EpicGames.EpicGamesLauncher', 'GOG.Galaxy', 'Blizzard.BattleNet', 'ElectronicArts.EADesktop', 'Ubisoft.Connect', 'RiotGames.Valorant.EU'
+    # Everyday: browsers, chat, music and video
+    'Google.Chrome', 'Brave.Brave', 'Mozilla.Firefox', 'Discord.Discord', 'Telegram.TelegramDesktop', '9NKSQGP7F2NH', 'Spotify.Spotify', 'Stremio.Stremio.Beta'
+    # Utilities: files and documents, media, passwords, cloud, the rest
+    '7zip.7zip', 'RARLab.WinRAR', 'Adobe.Acrobat.Reader.64-bit', 'Notepad++.Notepad++', 'Microsoft.VisualStudioCode'
+    'VideoLAN.VLC', 'CodecGuide.K-LiteCodecPack.Mega', 'IrfanSkiljan.IrfanView', 'HandBrake.HandBrake'
+    'Proton.ProtonPass', 'Proton.ProtonAuthenticator', 'Bitwarden.Bitwarden'
+    'Google.GoogleDrive', 'Dropbox.Dropbox', 'Mozilla.Thunderbird', 'qBittorrent.qBittorrent', 'AnyDesk.AnyDesk'
+    # Hardware tools
+    'Guru3D.Afterburner', 'Guru3D.RTSS', 'SteelSeries.GG', 'CrystalDewWorld.CrystalDiskInfo'
+)
+
 function Get-Categories {
     <#
         The steps as the window shows them: a title, an icon and (where it
@@ -149,15 +165,23 @@ function Get-Categories {
     $groupNames = @()
     foreach ($g in @($all | ForEach-Object { $_.Apps.Groups }) + @($Extras)) { if ($g -and $g.Name -notin $groupNames) { $groupNames += $g.Name } }
     foreach ($groupName in $groupNames) {
+        $groupApps = @()
         $sources = @(foreach ($cfg in $all) { @{ Packages = ($cfg.Apps.Groups | Where-Object Name -eq $groupName).Packages; Extra = & $notMine $cfg } })
         $sources += @{ Packages = ($Extras | Where-Object Name -eq $groupName).Packages; Extra = $true }
         foreach ($source in $sources) {
             foreach ($p in @($source.Packages | Where-Object { $_ })) {
                 if ($seen[$p.Id]) { continue }
                 $seen[$p.Id] = $true
-                $apps += @{ Key = $p.Id; Name = $p.Name; Group = $groupName; Extra = $source.Extra }
+                $groupApps += @{ Key = $p.Id; Name = $p.Name; Group = $groupName; Extra = $source.Extra }
             }
         }
+        # In Custom mode the list mixes presets and extras: show it in a sensible order, not in the order they were found
+        if ($Others -or $Extras) {
+            $rank = @{}; $i = 0
+            foreach ($id in $script:AppListOrder) { $rank[$id] = $i++ }
+            $groupApps = @($groupApps | Sort-Object { if ($rank.ContainsKey($_.Key)) { $rank[$_.Key] } else { 1000 } }, { $_.Name })
+        }
+        $apps += $groupApps
     }
 
     # Settings. The driver-updates setting has its own checkbox in the footer, so it isn't listed here.
