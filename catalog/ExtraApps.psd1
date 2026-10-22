@@ -19,6 +19,8 @@
             @{ Id = 'AnyDesk.AnyDesk';            Name = 'AnyDesk' }
             @{ Id = 'Microsoft.VisualStudioCode'; Name = 'VS Code' }
             @{ Id = 'RARLab.WinRAR';              Name = 'WinRAR' }
+            @{ Id = 'TheDocumentFoundation.LibreOffice'; Name = 'LibreOffice' }
+            @{ Id = 'AntibodySoftware.WizTree';   Name = 'WizTree' }
         ) }
         @{ Name = 'Hardware tools'; Packages = @(
             @{ Id = 'CrystalDewWorld.CrystalDiskInfo'; Name = 'CrystalDiskInfo' }

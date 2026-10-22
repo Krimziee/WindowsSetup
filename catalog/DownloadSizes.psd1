@@ -61,6 +61,8 @@
     'AnyDesk.AnyDesk'                    = 8.2
     'Microsoft.VisualStudioCode'         = 233.1
     'RARLab.WinRAR'                      = 3.6
+    'TheDocumentFoundation.LibreOffice'  = 357.5
+    'AntibodySoftware.WizTree'           = 4.9
 
     # Hardware tools
     'Guru3D.Afterburner'                 = 40.5
