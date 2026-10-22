@@ -2,6 +2,12 @@
 
 Sets up a fresh Windows 10 / 11 install in one go: removes bloatware, applies sensible settings, installs game redistributables and your apps, sets up drivers, cleans up and restarts. Windows Update is left to Windows itself. You pick a setup in a small window, press **Start setup**, and walk away.
 
+## What it looks like
+
+![Windows Setup](screenshots/windows-setup.png)
+
+Shown inside Krimz's Toolkit, where it is a tab.
+
 ## Run it
 
 Open **Terminal (Admin)** or **PowerShell** (right-click the Start button) and paste:

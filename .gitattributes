@@ -6,3 +6,6 @@
 *.json text eol=crlf
 *.xaml text eol=crlf
 *.md   text eol=crlf
+
+# README pictures, not needed in a download
+screenshots/ export-ignore
