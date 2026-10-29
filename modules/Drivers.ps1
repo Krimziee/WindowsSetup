@@ -44,7 +44,12 @@ function Invoke-DriverSetup {
             default {
                 try {
                     Add-OpenAfterRestart $vendor $script:DriverPages[$vendor]
-                    $what = if ($vendor -eq 'AMD') { 'AMD drivers (graphics + chipset)' } else { 'NVIDIA drivers' }
+                    # Say what the drivers are for: an AMD processor needs chipset drivers, an AMD or NVIDIA card graphics drivers
+                    $graphics = [bool]($System.Gpus | Where-Object Vendor -eq $vendor)
+                    $chipset  = $System.Cpu.Vendor -eq $vendor
+                    $what = if ($graphics -and $chipset) { "$vendor drivers (graphics + chipset)" }
+                            elseif ($chipset)            { "$vendor chipset drivers" }
+                            else                         { "$vendor graphics drivers" }
                     Write-Item $what 'Download page opens after the restart' 'Ok'
                 } catch {
                     Write-Log "Scheduling the $vendor page failed: $($_.Exception.Message)"

@@ -17,7 +17,9 @@ $script:Downloads = @{
     Max      = 3                                             # downloads at the same time
     Pending  = New-Object System.Collections.Generic.Queue[object]
     Running  = @{}                                           # Id -> process
+    Started  = @{}                                           # Id -> when its download started
     Done     = @{}                                           # Id -> folder, or $null if it failed
+    TimeoutMinutes = 45                                      # a download still running after this is stopped
 }
 
 # Silent switches winget uses for each installer type when the app doesn't specify its own
@@ -45,12 +47,24 @@ function Step-DownloadQueue {
     $d = $script:Downloads
     foreach ($id in @($d.Running.Keys)) {
         $proc = $d.Running[$id]
-        if (-not $proc.HasExited) { continue }
+        if (-not $proc.HasExited) {
+            # A stalled download would otherwise keep setup waiting forever; the app is then
+            # installed with a normal "winget install" instead (which has its own time limit)
+            if ($d.Started[$id] -and ((Get-Date) - $d.Started[$id]).TotalMinutes -ge $d.TimeoutMinutes) {
+                $proc | Stop-Process -Force -ErrorAction SilentlyContinue
+                Write-Log "  download $id took longer than $($d.TimeoutMinutes) minutes - stopped"
+                $d.Done[$id] = $null
+                $d.Running.Remove($id)
+                $d.Started.Remove($id)
+            }
+            continue
+        }
         $folder = Join-Path $d.Root $id
         $ok = $proc.ExitCode -eq 0 -and (Get-ChildItem $folder -Filter *.yaml -ErrorAction SilentlyContinue)
         $d.Done[$id] = if ($ok) { $folder } else { $null }
         Write-Log "  download $id finished (exit $($proc.ExitCode))"
         $d.Running.Remove($id)
+        $d.Started.Remove($id)
     }
     while ($d.Running.Count -lt $d.Max -and $d.Pending.Count -gt 0) {
         $p = $d.Pending.Dequeue()
@@ -62,6 +76,7 @@ function Step-DownloadQueue {
                         -RedirectStandardOutput "$folder.out.txt" -RedirectStandardError "$folder.err.txt"
             $null = $proc.Handle   # keeps the exit code available
             $d.Running[$p.Id] = $proc
+            $d.Started[$p.Id] = Get-Date
         } catch {
             Write-Log "  download $($p.Id) could not start: $($_.Exception.Message)"
             $d.Done[$p.Id] = $null
@@ -103,6 +118,7 @@ function Stop-DownloadQueue {
     $d.Pending.Clear()
     foreach ($proc in $d.Running.Values) { $proc | Stop-Process -Force -ErrorAction SilentlyContinue }
     $d.Running.Clear()
+    $d.Started.Clear()
 }
 
 # ------------------------------------------------------------------

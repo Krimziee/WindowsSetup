@@ -23,11 +23,11 @@ $ProgressPreference    = 'SilentlyContinue'   # progress bars make downloads muc
 . (Join-Path $PSScriptRoot 'modules\Load-Modules.ps1')
 $Version = $script:SetupVersion
 $script:Setup.DryRun = [bool]$DryRun
-Initialize-Log
-Write-Log "Windows Setup $Version started (dry run: $DryRun, console: $Console)"
 
 # ------------------------------------------------------------------
 #  Window (default)
+#  The window starts the log when "Start setup" is pressed, so just
+#  opening and closing it leaves no log on the desktop.
 # ------------------------------------------------------------------
 
 if (-not $Console) {
@@ -35,6 +35,7 @@ if (-not $Console) {
         . (Join-Path $PSScriptRoot 'modules\Ui.ps1')
         Show-SetupWindow -Root $PSScriptRoot -Version $Version -System (Get-SystemInfo)
     } catch {
+        if (-not $script:Setup.LogFile) { Initialize-Log }
         Write-Log "FATAL (window): $($_.Exception.Message)"
         Write-Log $_.ScriptStackTrace
         Add-Type -AssemblyName PresentationFramework
@@ -47,6 +48,8 @@ if (-not $Console) {
 #  Console version
 # ------------------------------------------------------------------
 
+Initialize-Log
+Write-Log "Windows Setup $Version started (dry run: $DryRun, console: $Console)"
 $Host.UI.RawUI.WindowTitle = "Windows Setup $Version"
 
 function Select-Preset {

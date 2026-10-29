@@ -109,14 +109,30 @@ function Update-Winget {
     }
 }
 
+$script:RestoreFrequencyKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore'
+
 function New-SafetyRestorePoint {
     try {
         Invoke-Change 'create a System Restore point' {
             $drive = "$env:SystemDrive\"
             Enable-ComputerRestore -Drive $drive -ErrorAction Stop
-            # Windows normally allows only one restore point per 24 hours
-            Set-RegistryValue 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore' 'SystemRestorePointCreationFrequency' 0
-            Checkpoint-Computer -Description 'Before Windows Setup' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
+            # Windows normally allows only one restore point per 24 hours. That limit is lifted
+            # just for this restore point and put back to what it was straight after.
+            $key  = $script:RestoreFrequencyKey
+            $name = 'SystemRestorePointCreationFrequency'
+            $before = (Get-ItemProperty -LiteralPath $key -Name $name -ErrorAction SilentlyContinue).$name
+            Set-RegistryValue $key $name 0
+            try {
+                Checkpoint-Computer -Description 'Before Windows Setup' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
+            } finally {
+                if ($null -eq $before) {
+                    Remove-ItemProperty -LiteralPath $key -Name $name -ErrorAction SilentlyContinue
+                    Write-Log "Put back: $name (removed again, Windows' default applies)"
+                } else {
+                    Set-ItemProperty -LiteralPath $key -Name $name -Value $before
+                    Write-Log "Put back: $name = $before"
+                }
+            }
         }
         Write-Item 'Restore point' 'Created ("Before Windows Setup")' 'Ok'
     } catch {

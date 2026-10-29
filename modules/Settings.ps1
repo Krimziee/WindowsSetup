@@ -189,7 +189,9 @@ $script:SettingsCatalog = @(
     @{ Id = 'ScreenOff10NeverSleep'; Name = 'Screen off after 10 min, never sleep'; Category = 'System'; Only = 'Desktop'; Apply = {
         Invoke-Change 'set screen and sleep timeouts' {
             powercfg /change monitor-timeout-ac 10
-            powercfg /change standby-timeout-ac 0 } } }
+            if ($LASTEXITCODE -ne 0) { throw 'powercfg could not set the screen timeout.' }
+            powercfg /change standby-timeout-ac 0
+            if ($LASTEXITCODE -ne 0) { throw 'powercfg could not set the sleep timeout.' } } } }
 
     @{ Id = 'FastStartupOff'; Name = 'Fast Startup off'; Category = 'System'; Apply = {
         Set-RegistryValue 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' 'HiberbootEnabled' 0 } }

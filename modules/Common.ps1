@@ -29,7 +29,7 @@ function Send-UiEvent {
 
 function Initialize-Log {
     $desktop = [Environment]::GetFolderPath('Desktop')
-    $script:Setup.LogFile = Join-Path $desktop ("WindowsSetup-log-{0:yyyy-MM-dd_HH-mm}.txt" -f (Get-Date))
+    $script:Setup.LogFile = Join-Path $desktop ("WindowsSetup-log-{0:yyyy-MM-dd_HH-mm-ss}.txt" -f (Get-Date))
 }
 
 function Write-Log {

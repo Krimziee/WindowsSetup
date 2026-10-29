@@ -778,10 +778,10 @@ function Start-Engine {
     $script:Ui.FooterText.Text = ''
     if (-not (Show-StartConfirmation $config)) { return }
 
-    # In Krimz's Toolkit the log starts here, so just opening the toolkit leaves no log on the desktop
+    # The log starts here, so just opening the window (or Krimz's Toolkit) leaves no log on the desktop
     if (-not $script:Setup.LogFile) {
         Initialize-Log
-        Write-Log "Windows Setup $($script:SetupVersion) started from Krimz's Toolkit (dry run: $($script:Setup.DryRun))"
+        Write-Log "Windows Setup $($script:SetupVersion) started (dry run: $($script:Setup.DryRun))"
     }
     $s = $script:UiState
     $s.Config    = $config

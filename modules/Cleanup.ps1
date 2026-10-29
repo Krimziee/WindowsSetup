@@ -95,14 +95,29 @@ function Remove-OldFiles {
     <#
         Deletes files in a temp folder that were created during this run
         (installer leftovers) or are older than a week, like Disk Cleanup
-        does. Files that are in use are skipped.
+        does. Every file is judged by its own dates: editing a file doesn't
+        change its folder's date, so a folder can look old while a program
+        is still using what's inside. A folder is removed only once it is
+        empty. Files that are in use are skipped. Links to other folders
+        (junctions) are never followed, so nothing outside the temp folder
+        is touched.
     #>
     param([string]$Folder, [datetime]$Since)
-    if (-not (Test-Path $Folder)) { return }
+    if (-not (Test-Path -LiteralPath $Folder)) { return }
     $weekAgo = (Get-Date).AddDays(-7)
-    Get-ChildItem $Folder -Force -ErrorAction SilentlyContinue |
-        Where-Object { $_.CreationTime -ge $Since -or $_.LastWriteTime -lt $weekAgo } |
-        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    $link = [IO.FileAttributes]::ReparsePoint
+    foreach ($item in @(Get-ChildItem -LiteralPath $Folder -Force -ErrorAction SilentlyContinue)) {
+        if ($item.Attributes -band $link) { continue }
+        $qualifies = $item.CreationTime -ge $Since -or $item.LastWriteTime -lt $weekAgo
+        if (-not $item.PSIsContainer) {
+            if ($qualifies) { Remove-Item -LiteralPath $item.FullName -Force -ErrorAction SilentlyContinue }
+            continue
+        }
+        Remove-OldFiles -Folder $item.FullName -Since $Since
+        # The folder's own dates are read before its contents were cleaned up (that changes them)
+        $empty = -not (Get-ChildItem -LiteralPath $item.FullName -Force -ErrorAction SilentlyContinue | Select-Object -First 1)
+        if ($empty -and $qualifies) { Remove-Item -LiteralPath $item.FullName -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 function Clear-SetupLeftovers {
